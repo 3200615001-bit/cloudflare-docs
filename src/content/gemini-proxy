@@ -1,0 +1,99 @@
+export default {
+  async fetch(request, env, ctx) {
+    // 获取请求的 URL
+    const url = new URL(request.url);
+    
+    // 处理 CORS 预检请求
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 200,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+          'Access-Control-Max-Age': '86400',
+        },
+      });
+    }
+
+    try {
+      // 从请求头或 URL 参数获取 API 密钥
+      const apiKey = request.headers.get('X-API-Key') || 
+                     url.searchParams.get('key') ||
+                     url.searchParams.get('apikey');
+
+      if (!apiKey) {
+        return new Response(JSON.stringify({ error: 'API key is required' }), {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      }
+
+      // 构建 Gemini API 的实际 URL
+      let targetPath = url.pathname;
+      
+      // 移除可能的前缀
+      if (targetPath.startsWith('/v1beta/')) {
+        targetPath = targetPath.substring(7);
+      } else if (targetPath === '/' || targetPath === '') {
+        targetPath = '/models';
+      }
+
+      // 构建完整的 Gemini API URL
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta${targetPath}`;
+      
+      // 准备新的请求头
+      const headers = new Headers(request.headers);
+      headers.delete('X-API-Key'); // 移除自定义头
+      headers.set('Content-Type', 'application/json');
+
+      // 构建请求选项
+      const requestOptions = {
+        method: request.method,
+        headers: headers,
+      };
+
+      // 如果有请求体，添加它
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        requestOptions.body = await request.text();
+      }
+
+      // 添加 API 密钥到 URL
+      const finalUrl = geminiUrl + (geminiUrl.includes('?') ? '&' : '?') + `key=${apiKey}`;
+
+      // 发送请求到 Gemini API
+      const response = await fetch(finalUrl, requestOptions);
+
+      // 获取响应内容
+      const responseBody = await response.text();
+
+      // 创建新的响应，添加 CORS 头
+      return new Response(responseBody, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: {
+          'Content-Type': response.headers.get('Content-Type') || 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+        },
+      });
+
+    } catch (error) {
+      // 错误处理
+      return new Response(JSON.stringify({ 
+        error: 'Proxy error', 
+        message: error.message 
+      }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
+  },
+};
